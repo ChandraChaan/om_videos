@@ -39,7 +39,7 @@ class FilePickerScreen extends StatefulWidget {
 
 class _FilePickerScreenState extends State<FilePickerScreen> {
   File? _selectedFile;
-  String? _uploadId;
+
   double _progress = 0;
   bool _isUploading = false;
   bool _uploadComplete = false;
@@ -62,7 +62,16 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
   }
 
   Future<void> startUpload() async {
-    if (_selectedFile == null) return;
+    print("=== startUpload() CALLED ===");
+
+    if (_selectedFile == null) {
+      print("❌ ERROR: _selectedFile is NULL");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please select a file first")),
+      );
+      return;
+    }
+    print("✅ File selected: ${_selectedFile!.path}");
 
     setState(() {
       _isUploading = true;
@@ -70,46 +79,73 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
 
     String fileName = path.basename(_selectedFile!.path);
     int fileSize = await _selectedFile!.length();
+    print("📄 fileName: $fileName");
+    print("📦 fileSize: $fileSize bytes");
+    print("🌐 Server URL: $serverUrl");
 
     // STEP 1: Request upload ID from server
+    print("📤 Sending start_upload.php request...");
     var idRes = await http.post(
       Uri.parse("$serverUrl/start_upload.php"),
       body: {
         "fileName": fileName,
-        "fileSize": fileSize.toString(),
+        "totalSize": fileSize.toString(), // server expects totalSize, not fileSize
       },
     );
+    print("📥 Response from start_upload.php: ${idRes.statusCode} ${idRes.body}");
 
-    var idJson = jsonDecode(idRes.body);
-    final data = jsonDecode(idRes.body);
-    final success = data['success'] == true;
-    if (success) {
+    var idJson;
+    try {
+      idJson = jsonDecode(idRes.body);
+    } catch (e) {
+      print("❌ JSON decode error: $e");
+      return;
+    }
+
+    print("📦 Parsed idJson: $idJson");
+
+    if (idJson['uploadId'] == null) {
+      print("❌ uploadId is NULL. Full server response: $idJson");
       setState(() => _isUploading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to init upload: ${idJson['message']}")),
+        SnackBar(content: Text("Failed to init upload: ${idJson['error'] ?? 'Unknown error'}")),
       );
       return;
     }
-    _uploadId = idJson['uploadId'];
+    String _uploadId = idJson['uploadId'];
+    print("✅ Got uploadId: $_uploadId");
 
     // STEP 2: Check how many bytes already uploaded
+    print("📤 Sending check.php request...");
     var checkRes = await http.post(
       Uri.parse("$serverUrl/check.php"),
       body: {
-        "uploadId": _uploadId!,
+        "uploadId": _uploadId,
       },
     );
-    var checkJson = jsonDecode(checkRes.body);
+    print("📥 Response from check.php: ${checkRes.statusCode} ${checkRes.body}");
+
+    var checkJson;
+    try {
+      checkJson = jsonDecode(checkRes.body);
+    } catch (e) {
+      print("❌ JSON decode error in check.php: $e");
+      return;
+    }
+
     int uploadedBytes = checkJson['uploadedBytes'] ?? 0;
+    print("📊 Uploaded bytes from server: $uploadedBytes");
 
     // STEP 3: Upload in chunks
     const int chunkSize = 512 * 1024; // 512 KB
     RandomAccessFile raf = await _selectedFile!.open();
     int start = uploadedBytes;
 
+    print("🚀 Starting chunk upload loop...");
     while (start < fileSize) {
       int end = (start + chunkSize > fileSize) ? fileSize : start + chunkSize;
       int currentChunkSize = end - start;
+      print("➡️ Sending chunk from $start to $end ($currentChunkSize bytes)");
 
       raf.setPositionSync(start);
       List<int> chunkData = raf.readSync(currentChunkSize);
@@ -118,7 +154,7 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
         "POST",
         Uri.parse("$serverUrl/upload.php"),
       );
-      request.fields['uploadId'] = _uploadId!;
+      request.fields['uploadId'] = _uploadId;
       request.fields['startByte'] = start.toString();
       request.fields['totalSize'] = fileSize.toString();
       request.files.add(http.MultipartFile.fromBytes(
@@ -129,14 +165,24 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
 
       var response = await request.send();
       var respStr = await response.stream.bytesToString();
-      var respJson = jsonDecode(respStr);
+      print("📥 Response from upload.php: $respStr");
+
+      var respJson;
+      try {
+        respJson = jsonDecode(respStr);
+      } catch (e) {
+        print("❌ JSON decode error in upload.php: $e");
+        break;
+      }
 
       if (respJson['success'] == true) {
         start = respJson['uploadedBytes'] ?? start;
+        print("✅ Uploaded bytes updated to: $start");
         setState(() {
           _progress = start / fileSize;
         });
       } else {
+        print("❌ Upload error: ${respJson['message']}");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Upload error: ${respJson['message']}")),
         );
@@ -144,6 +190,7 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
       }
 
       if (respJson['complete'] == true) {
+        print("🎉 Upload complete! Watch URL: ${respJson['watchUrl']}");
         setState(() {
           _uploadComplete = true;
           _watchUrl = respJson['watchUrl'];
@@ -152,10 +199,11 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
       }
     }
 
-    raf.close();
+    await raf.close();
     setState(() {
       _isUploading = false;
     });
+    print("=== startUpload() FINISHED ===");
   }
 
   @override
