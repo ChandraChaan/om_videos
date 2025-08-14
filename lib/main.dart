@@ -5,6 +5,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'dart:typed_data';
+import 'package:dio/dio.dart';
 
 void main() {
   runApp(const OmVideosApp());
@@ -23,7 +25,7 @@ class OmVideosApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        '/': (context) => FilePickerScreen(),
+        '/': (context) => LargeFileUploader(),
         VideoPlayerScreen.routeName: (context) => const VideoPlayerScreen(),
       },
     );
@@ -175,17 +177,28 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
         break;
       }
 
-      if (respJson['success'] == true) {
-        start = respJson['uploadedBytes'] ?? start;
-        print("✅ Uploaded bytes updated to: $start");
-        setState(() {
-          _progress = start / fileSize;
-        });
-      } else {
-        print("❌ Upload error: ${respJson['message']}");
+// NEW:
+      if (respJson.containsKey('error') && respJson['error'] != null) {
+        print("❌ Upload error: ${respJson['error']}");
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Upload error: ${respJson['message']}")),
+          SnackBar(content: Text("Upload error: ${respJson['error']}")),
         );
+        break;
+      }
+
+// Continue uploading if server responded without errors
+      start = respJson['uploadedBytes'] ?? start;
+      print("✅ Uploaded bytes updated to: $start");
+      setState(() {
+        _progress = start / fileSize;
+      });
+
+      if (respJson['complete'] == true) {
+        print("🎉 Upload complete! Watch URL: ${respJson['watchUrl']}");
+        setState(() {
+          _uploadComplete = true;
+          _watchUrl = respJson['watchUrl'];
+        });
         break;
       }
 
@@ -242,6 +255,204 @@ class _FilePickerScreenState extends State<FilePickerScreen> {
                   ],
                 ),
             ]
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LargeFileUploader extends StatefulWidget {
+  const LargeFileUploader({super.key});
+
+  @override
+  _LargeFileUploaderState createState() => _LargeFileUploaderState();
+}
+
+class _LargeFileUploaderState extends State<LargeFileUploader> {
+  File? _file;
+  double _progress = 0.0;
+  String? _sessionId;
+
+  final Dio dio = Dio();
+
+  static const int chunkSize = 1024 * 1024; // 1 MB chunk
+
+  // Replace with your PHP backend URL
+  static const String baseUrl = 'https://omorals.com/php_server/';
+
+  Future<void> pickFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles();
+
+    if (result != null && result.files.single.path != null) {
+      setState(() {
+        _file = File(result.files.single.path!);
+        _progress = 0;
+        _sessionId = null;
+      });
+    }
+  }
+
+  Future<void> createUploadSession() async {
+    print('Creating upload session...');
+    final res = await dio.post('$baseUrl/upload_session.php');
+    _sessionId = res.data['sessionId'];
+    print('Upload session created: $_sessionId');
+  }
+
+  Future<void> uploadChunks() async {
+    if (_file == null || _sessionId == null) {
+      print('No file selected or session ID missing.');
+      return;
+    }
+
+    final int totalSize = await _file!.length();
+    final int totalChunks = (totalSize / chunkSize).ceil();
+
+    print('Starting upload: totalSize=$totalSize bytes, totalChunks=$totalChunks');
+
+    final raf = _file!.openSync();
+
+    for (int i = 0; i < totalChunks; i++) {
+      int start = i * chunkSize;
+      int end = start + chunkSize;
+      if (end > totalSize) end = totalSize;
+
+      int chunkLength = end - start;
+
+      raf.setPositionSync(start);
+      Uint8List chunkData = raf.readSync(chunkLength);
+
+      print('Uploading chunk $i: bytes $start to ${end - 1} (size $chunkLength)');
+
+      FormData formData = FormData.fromMap({
+        'sessionId': _sessionId,
+        'chunkIndex': i.toString(),
+        'chunk': MultipartFile.fromBytes(chunkData, filename: 'chunk_$i'),
+      });
+
+      // Print debug info before sending
+      print('FormData for chunk $i:');
+      print('  sessionId: $_sessionId');
+      print('  chunkIndex: $i');
+      print('  chunk filename: chunk_$i');
+      print('  chunk size: ${chunkData.lengthInBytes} bytes');
+
+      try {
+        print('--- Uploading chunk $i ---');
+        print('SessionId: $_sessionId');
+        print('ChunkIndex: $i');
+        print('Chunk filename: chunk_$i');
+        print('Chunk size: ${chunkData.lengthInBytes} bytes');
+
+        final response = await dio.post(
+          '$baseUrl/upload_chunk.php',
+          data: formData,
+          options: Options(
+            validateStatus: (_) => true, // Let us handle non-200 manually
+          ),
+        );
+
+        print('HTTP ${response.statusCode} ${response.statusMessage}');
+        print('Response data: ${response.data}');
+
+        if (response.statusCode != 200) {
+          print('❌ Server returned error status for chunk $i');
+          throw Exception(
+            'Chunk $i failed: HTTP ${response.statusCode} - ${response.data}',
+          );
+        } else {
+          print('✅ Chunk $i uploaded successfully');
+        }
+      } on DioException catch (dioErr) {
+        print('🚨 DioException while uploading chunk $i');
+        print('Message: ${dioErr.message}');
+        if (dioErr.response != null) {
+          print('Status: ${dioErr.response?.statusCode}');
+          print('Data: ${dioErr.response?.data}');
+          print('Headers: ${dioErr.response?.headers}');
+        }
+        print('Request Options: ${dioErr.requestOptions}');
+        rethrow; // Stop further uploads
+      } catch (e, stack) {
+        print('💥 Unexpected error uploading chunk $i: $e');
+        print(stack);
+        rethrow;
+      }
+
+
+      setState(() {
+        _progress = (i + 1) / totalChunks;
+      });
+    }
+
+    raf.closeSync();
+
+    print('All chunks uploaded. Requesting server to complete upload.');
+
+    try {
+      print('📤 Sending complete_upload request...');
+      print('  sessionId: $_sessionId');
+      print('  fileName: ${_file!.path.split('/').last}');
+      print('  totalChunks: $totalChunks');
+
+      final res = await dio.post(
+        '$baseUrl/complete_upload.php',
+        data: {
+          'sessionId': _sessionId,
+          'fileName': _file!.path.split('/').last,
+          'totalChunks': totalChunks,
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType, // Ensures PHP sees it as $_POST
+          validateStatus: (status) => status != null && status < 500, // Allow 4xx so we can print
+        ),
+      );
+
+      print('✅ Complete upload HTTP status: ${res.statusCode}');
+      print('✅ Complete upload response: ${res.data}');
+    } catch (e, stack) {
+      print('❌ Error completing upload: $e');
+      print('Stack trace: $stack');
+      rethrow;
+    }
+
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Large File Uploader')),
+      body: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          children: [
+            ElevatedButton(onPressed: pickFile, child: Text('Pick File')),
+            SizedBox(height: 20),
+            if (_file != null) Text('File: ${_file!.path.split('/').last}'),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: (_file == null)
+                  ? null
+                  : () async {
+                try {
+                  await createUploadSession();
+                  await uploadChunks();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Upload Complete')),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Upload failed: $e')),
+                  );
+                }
+              },
+              child: Text('Upload File'),
+            ),
+            SizedBox(height: 20),
+            LinearProgressIndicator(value: _progress),
+            SizedBox(height: 10),
+            Text('${(_progress * 100).toStringAsFixed(1)} %'),
           ],
         ),
       ),
