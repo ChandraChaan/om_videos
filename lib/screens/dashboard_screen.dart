@@ -23,7 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _projectsFuture = ApiService.getProjects(widget.token);
   }
 
-  refresh(){
+  refresh() {
     setState(() {
       _projectsFuture = ApiService.getProjects(widget.token);
     });
@@ -34,12 +34,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return MobileFrame(
       child: Scaffold(
         appBar: AppBar(
-          title: Text("Dashboard"), automaticallyImplyLeading: false,
+          title: Text("Dashboard"),
+          automaticallyImplyLeading: false,
           backgroundColor: Colors.red,
           actions: [
-            IconButton(icon: Icon(Icons.refresh), onPressed:(){
-              refresh();
-            })
+            IconButton(
+              icon: Icon(Icons.refresh),
+              onPressed: () {
+                refresh();
+              },
+            ),
           ],
         ),
         body: FutureBuilder<List<dynamic>>(
@@ -61,10 +65,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               itemBuilder: (context, index) {
                 final project = projects[index];
                 return InkWell(
-                  onTap: (){
+                  onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => ProjectDetailsPage(token: widget.token, projectTitle: project["title"], projectId: project["id"],)),
+                      MaterialPageRoute(
+                        builder: (_) => ProjectDetailsPage(
+                          token: widget.token,
+                          projectTitle: project["title"],
+                          projectId: project["id"],
+                          projectStage: project["current_stage"],
+                        ),
+                      ),
                     );
                   },
                   child: Card(
@@ -107,12 +118,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             );
           },
         ),
-        floatingActionButton: FloatingActionButton(onPressed: (){
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => CreateProjectPage(token: widget.token,)),
-          );
-        }, child: Icon(Icons.add),),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CreateProjectPage(token: widget.token),
+              ),
+            );
+          },
+          child: Icon(Icons.add),
+        ),
       ),
     );
   }

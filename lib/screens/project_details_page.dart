@@ -7,12 +7,14 @@ import '../widgets/mobile_frame.dart';
 class ProjectDetailsPage extends StatefulWidget {
   final int projectId;
   final String projectTitle;
+  final String projectStage;
   final String token;
 
   const ProjectDetailsPage({
     super.key,
     required this.projectId,
     required this.projectTitle,
+    required this.projectStage,
     required this.token,
   });
 
@@ -23,6 +25,7 @@ class ProjectDetailsPage extends StatefulWidget {
 class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   List<dynamic> stages = [];
   List<dynamic> comments = [];
+  int? stageIdFinal;
   bool loading = true;
   final TextEditingController _commentController = TextEditingController();
 
@@ -34,57 +37,144 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
   Future<void> fetchData() async {
     await fetchStages();
+    await getStageSequenceId(widget.projectStage);
+  }
+
+  Future<void> getStageSequenceId(String currentStageName) async {
+    print("[DEBUG] Entering getStageSequenceId() with currentStage=$currentStageName");
+
+    // Static map of stage_name → sequence (stage_id)
+    final Map<String, int> stageMap = {
+      "SCRIPT": 1,
+      "VOICE_OVER": 2,
+      "EDITING": 3,
+      "UPLOAD": 4,
+    };
+
+    if (stageMap.containsKey(currentStageName)) {
+      final seqId = stageMap[currentStageName];
+      print("[DEBUG] Matched stage: $currentStageName → Returning stage_id=$seqId");
+
+      setState(() {
+        stageIdFinal = 1; //seqId;
+
+      });
+    }
     await fetchComments();
+    print("[DEBUG] Stage not found in map! Returning null.");
+
   }
 
   Future<void> fetchStages() async {
+    print("[DEBUG] Starting fetchStages() ...");
+
     final url = Uri.parse(
         "https://omorals.com/php_server/project.php/project/stages?project_id=${widget.projectId}");
-    final response = await http.get(url, headers: {
-      "Authorization": "Bearer ${widget.token}",
-    });
+    print("[DEBUG] Request URL: $url");
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      setState(() {
-        stages = data['stages'];
-        loading = false;
-      });
+    try {
+      print("[DEBUG] Sending GET request with token: ${widget.token}");
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Bearer ${widget.token}",
+        },
+      );
+
+      print("[DEBUG] Response status: ${response.statusCode}");
+      print("[DEBUG] Raw response body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        print("[DEBUG] Decoding JSON ...");
+        final data = jsonDecode(response.body);
+
+        print("[DEBUG] Parsed JSON: $data");
+
+        setState(() {
+          stages = data['stages'] ?? [];
+          loading = false;
+        });
+
+        print("[DEBUG] Stages updated in state: $stages");
+        // Get the first not-approved stage id
+        print("[DEBUG] Pending Stage ID to work on: $stageIdFinal");
+        print("[DEBUG] Loading set to false");
+      } else {
+        print("[ERROR] Failed to fetch stages, status: ${response.statusCode}");
+        print("[ERROR] Body: ${response.body}");
+      }
+    } catch (e) {
+      print("[EXCEPTION] Error in fetchStages(): $e");
     }
+
+    print("[DEBUG] fetchStages() finished");
   }
 
-  Future<void> fetchComments() async {
-    final url = Uri.parse(
-        "https://omorals.com/php_server/project.php/project/comments?project_id=${widget.projectId}");
-    final response = await http.get(url, headers: {
-      "Authorization": "Bearer ${widget.token}",
-    });
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      setState(() {
-        comments = data['comments'];
-      });
-    }
-  }
-
-  Future<void> addComment(int stageId) async {
+  Future<void> addComment() async {
     final url = Uri.parse(
         "https://omorals.com/php_server/project.php/project/comment");
-    final response = await http.post(url,
+
+    final bodyData = {
+      "project_stage_id": stageIdFinal,
+      "message": _commentController.text
+    };
+
+    print("[addComment] URL: $url");
+    print("[addComment] Headers: {Authorization: Bearer ${widget.token}, Content-Type: application/json}");
+    print("[addComment] Body: $bodyData");
+
+    try {
+      final response = await http.post(
+        url,
         headers: {
           "Authorization": "Bearer ${widget.token}",
           "Content-Type": "application/json",
         },
-        body: jsonEncode({
-          "project_id": widget.projectId,
-          "stage_id": stageId,
-          "content": _commentController.text
-        }));
+        body: jsonEncode(bodyData),
+      );
 
-    if (response.statusCode == 200) {
-      _commentController.clear();
-      fetchComments(); // refresh
+      print("[addComment] Status Code: ${response.statusCode}");
+      print("[addComment] Response Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        print("[addComment] Comment added successfully ✅");
+        _commentController.clear();
+        // await fetchComments(); // refresh comments
+      } else {
+        print("[addComment] Failed ❌");
+      }
+    } catch (e) {
+      print("[addComment] Exception: $e");
+    }
+  }
+
+  Future<void> fetchComments() async {
+    print("Fetching comments for project ${widget.projectId}, stage $stageIdFinal ...");
+    final url = Uri.parse(
+        "https://omorals.com/php_server/project.php/project/comments?project_id=${widget.projectId}&stage_id=$stageIdFinal");
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Bearer ${widget.token}",
+          "Content-Type": "application/json",
+        },
+      );
+
+      print("Status Code: ${response.statusCode}");
+      print("Response Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          comments = data['comments'] ?? [];
+        });
+      } else {
+        throw Exception("Failed to fetch comments");
+      }
+    } catch (e) {
+      print("Error fetching comments: $e");
     }
   }
 
@@ -127,9 +217,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               const SizedBox(height: 8),
               ...comments.map((c) => Card(
                 child: ListTile(
-                  title: Text(c['user_name']),
-                  subtitle: Text(c['content']),
-                  trailing: Text(c['created_at']),
+                  title: Text('${c['message']}'),
+                  subtitle: Text(' - ${c['author_name']}'),
+                  trailing: Text('${c['created_at']}'),
                 ),
               )),
               const SizedBox(height: 70),
@@ -153,7 +243,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 icon: const Icon(Icons.send, color: Colors.red),
                 onPressed: () {
                   if (_commentController.text.isNotEmpty) {
-                    addComment(stages.first['stage_id']); // default: first stage
+                    addComment(); // default: first stage
                   }
                 },
               )
