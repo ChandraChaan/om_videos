@@ -67,7 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               itemBuilder: (context, index) {
                 final project = projects[index];
                 return InkWell(
-                  onTap: () {
+                  onTap: (project['current_stage'].toString().toLowerCase() == 'null') ? null :() {
                     Navigator.push(
                       context,
                       MaterialPageRoute(

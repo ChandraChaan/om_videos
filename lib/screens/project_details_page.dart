@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+import 'package:om_videos/screens/stage_actions_page.dart';
 
 import '../widgets/mobile_frame.dart';
 
@@ -56,7 +57,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       print("[DEBUG] Matched stage: $currentStageName → Returning stage_id=$seqId");
 
       setState(() {
-        stageIdFinal = 1; //seqId;
+        stageIdFinal = seqId;
 
       });
     }
@@ -81,14 +82,14 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         },
       );
 
-      print("[DEBUG] Response status: ${response.statusCode}");
-      print("[DEBUG] Raw response body: ${response.body}");
+      // print("[DEBUG] Response status: ${response.statusCode}");
+      // print("[DEBUG] Raw response body: ${response.body}");
 
       if (response.statusCode == 200) {
         print("[DEBUG] Decoding JSON ...");
         final data = jsonDecode(response.body);
 
-        print("[DEBUG] Parsed JSON: $data");
+        // print("[DEBUG] Parsed JSON: $data");
 
         setState(() {
           stages = data['stages'] ?? [];
@@ -195,19 +196,29 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             children: [
               Text("Stages", style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              ...stages.map((s) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 6),
-                child: ListTile(
-                  title: Text(s['stage_name']),
-                  subtitle: Text(
-                      "Status: ${s['status']}\nAssignee: ${s['assignee_user_id'] ?? 'Unassigned'}\nTester: ${s['tester_user_id'] ?? 'N/A'}"),
-                  trailing: Icon(
-                    s['status'] == "APPROVED"
-                        ? Icons.check_circle
-                        : Icons.hourglass_bottom,
-                    color: s['status'] == "APPROVED"
-                        ? Colors.green
-                        : Colors.orange,
+              ...stages.map((s) => InkWell(
+                onTap: (){
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StageActionsPage(token: widget.token, projectId: widget.projectId, stageId: stageIdFinal ?? 1,),
+                    ),
+                  );
+                },
+                child: Card(
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  child: ListTile(
+                    title: Text(s['stage_name']),
+                    subtitle: Text(
+                        "Status: ${s['status']}\nAssignee: ${s['assignee_name'] ?? 'Unassigned'}\nTester: ${s['tester_name'] ?? 'N/A'}"),
+                    trailing: Icon(
+                      s['status'] == "APPROVED"
+                          ? Icons.check_circle
+                          : Icons.hourglass_bottom,
+                      color: s['status'] == "APPROVED"
+                          ? Colors.green
+                          : Colors.orange,
+                    ),
                   ),
                 ),
               )),
