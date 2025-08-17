@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../widgets/app_drawer.dart';
 import '../widgets/mobile_frame.dart';
 import 'create_project_page.dart';
 import 'project_details_page.dart';
@@ -35,7 +36,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text("Dashboard"),
-          automaticallyImplyLeading: false,
+          // automaticallyImplyLeading: false,
           backgroundColor: Colors.red,
           actions: [
             IconButton(
@@ -46,6 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
+        drawer:  AppDrawer(token:  widget.token,),
         body: FutureBuilder<List<dynamic>>(
           future: _projectsFuture,
           builder: (context, snapshot) {
@@ -133,3 +135,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
+
