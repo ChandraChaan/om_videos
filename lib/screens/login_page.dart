@@ -8,8 +8,8 @@ import 'dashboard_screen.dart';
 class LoginScreen extends StatelessWidget {
   final _formKey = GlobalKey<FormState>();
 
-  final user_name = TextEditingController(text: 'omorals@example.com');
-  final pass_word = TextEditingController(text: 'Chandra123');
+  final user_name = TextEditingController();
+  final pass_word = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
