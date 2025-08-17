@@ -201,7 +201,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => StageActionsPage(token: widget.token, projectId: widget.projectId, stageId: stageIdFinal ?? 1,),
+                      builder: (_) => StageActionsPage(token: widget.token, projectId: widget.projectId, stageId: s['stage_id'],),
                     ),
                   );
                 },
