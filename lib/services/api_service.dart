@@ -6,7 +6,117 @@ import '../utils/constants.dart';
 
 class ApiService {
   // TODO: set to your real server later
-  static const String baseUrl = 'https://example.com/api';
+
+  static const String baseUrl = "https://omorals.com/php_server";
+
+  // Login API
+  static Future<Map<String, dynamic>> loginUser(
+      String email, String password) async
+  {
+    final url = Uri.parse("$baseUrl/login.php");
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "email": email,
+          "password": password,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception("Login failed: ${response.statusCode}");
+      }
+    } catch (e) {
+      throw Exception("Error: $e");
+    }
+  }
+
+  static Future<List<dynamic>> getProjects(String token) async {
+    print("[DEBUG] Entered getProjects()");
+
+    final url = Uri.parse("$baseUrl/get_projects.php");
+    print("[DEBUG] API URL: $url");
+
+    try {
+      final headers = {
+        "Authorization": "Bearer $token",
+      };
+      print("[DEBUG] Headers: $headers");
+
+      final response = await http.get(url, headers: headers);
+      print("[DEBUG] Response received.");
+      print("[DEBUG] Status Code: ${response.statusCode}");
+      print("[DEBUG] Raw Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print("[DEBUG] Parsed JSON: $data");
+
+        final projects = (data['projects'] as List).map((p) {
+          return {
+            "id": p['id'],
+            "title": p['title'],
+            "deadline": p['deadline'],
+            // ✅ ensure progress is always a double
+            "progress": double.tryParse(p['progress'].toString()) ?? 0.0,
+            "current_stage": p['current_stage'],
+          };
+        }).toList();
+
+        print("[DEBUG] Normalized Projects: $projects");
+        return projects;
+      } else {
+        throw Exception("Failed to fetch projects: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("[DEBUG] Exception caught: $e");
+      throw Exception("Error: $e");
+    }
+  }
+
+  static Future<Map<String, dynamic>> createProject({
+    required String token,
+    required String title,
+    required String description,
+    required String deadline,
+  }) async {
+    final url = Uri.parse("$baseUrl/project.php/project/create");
+    print("[DEBUG] API URL: $url");
+
+    try {
+      final headers = {
+        "Content-Type": "application/json",
+        "Authorization": token, // NOTE: Your API expects raw token, not 'Bearer'
+      };
+
+      final body = jsonEncode({
+        "title": title,
+        "description": description,
+        "deadline": deadline,
+      });
+
+      print("[DEBUG] Request Headers: $headers");
+      print("[DEBUG] Request Body: $body");
+
+      final response = await http.post(url, headers: headers, body: body);
+
+      print("[DEBUG] Response Status: ${response.statusCode}");
+      print("[DEBUG] Response Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception("Failed to create project: ${response.body}");
+      }
+    } catch (e) {
+      print("[DEBUG] Exception: $e");
+      throw Exception("Error: $e");
+    }
+  }
 
   Future<List<VideoModel>> fetchVideos() async {
     // For now return sample data (no real HTTP). Replace this with an HTTP GET.
