@@ -34,6 +34,7 @@ class _UserCreatePageState extends State<UserCreatePage> {
     {'v': 'editor', 't': 'Editor'},
     {'v': 'social', 't': 'Social Media Manager'},
     {'v': 'tester', 't': 'Tester'},
+    {'v': 'hr', 't': 'HR'},
 
   ];
   String _role = 'voice';
